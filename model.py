@@ -19,10 +19,8 @@ class Model():
     else:
       raise Exception("model type not supported: {}".format(args.model))
 
-    cell = cell_fn(args.rnn_size, state_is_tuple=False)
-
     cell = tf.contrib.rnn.MultiRNNCell(
-            [cell] * args.num_layers,
+            [cell_fn(args.rnn_size, state_is_tuple=False) for _ in range(args.num_layers)],
             state_is_tuple=False
         )
 
@@ -45,8 +43,8 @@ class Model():
 
     # inputs = tf.split(axis=1, num_or_size_splits=args.seq_length, value=self.input_data)
     # inputs = [tf.squeeze(input_, [1]) for input_ in inputs]
-    inputs = tf.unpack(self.input_data, axis=1)
-    
+    inputs = tf.unstack(self.input_data, axis=1)
+
     outputs, state_out = tf.contrib.legacy_seq2seq.rnn_decoder(inputs, self.state_in, cell, loop_function=None, scope='rnnlm')
     output = tf.reshape(tf.concat(axis=1, values=outputs), [-1, args.rnn_size])
     output = tf.nn.xw_plus_b(output, output_w, output_b)
@@ -115,7 +113,7 @@ class Model():
       return [z_pi, z_mu1, z_mu2, z_sigma1, z_sigma2, z_corr, z_eos]
 
     [o_pi, o_mu1, o_mu2, o_sigma1, o_sigma2, o_corr, o_eos] = get_mixture_coef(output)
-    
+
     # I could put all of these in a single tensor for reading out, but this is more human readable
     data_out_pi = tf.identity(o_pi, "data_out_pi");
     data_out_mu1 = tf.identity(o_mu1, "data_out_mu1");
@@ -124,8 +122,8 @@ class Model():
     data_out_sigma2 = tf.identity(o_sigma2, "data_out_sigma2");
     data_out_corr = tf.identity(o_corr, "data_out_corr");
     data_out_eos = tf.identity(o_eos, "data_out_eos");
-                              
-    # sticking them all (except eos) in one op anyway, makes it easier for freezing the graph later                          
+
+    # sticking them all (except eos) in one op anyway, makes it easier for freezing the graph later
     # IMPORTANT, this needs to stack the named ops above (data_out_XXX), not the prev ops (o_XXX)
     # otherwise when I freeze the graph up to this point, the named versions will be cut
     # eos is diff size to others, so excluding that
@@ -141,9 +139,9 @@ class Model():
 
     lossfunc = get_lossfunc(o_pi, o_mu1, o_mu2, o_sigma1, o_sigma2, o_corr, o_eos, x1_data, x2_data, eos_data)
     self.cost = lossfunc / (args.batch_size * args.seq_length)
-    
-    self.train_loss_summary = tf.summary.scalar('train_loss', self.cost) 
-    self.valid_loss_summary = tf.summary.scalar('validation_loss', self.cost) 
+
+    self.train_loss_summary = tf.summary.scalar('train_loss', self.cost)
+    self.valid_loss_summary = tf.summary.scalar('validation_loss', self.cost)
 
     self.lr = tf.Variable(0.0, trainable=False)
     tvars = tf.trainable_variables()
